@@ -1,0 +1,7 @@
+{"success":true,"update":[
+ {"rid":"RIDDM","t":"d","name":"john.roe","fname":"John Roe","open":true,"_updatedAt":"2026-09-20T10:00:00.000Z"},
+ {"rid":"RIDCH","t":"c","name":"general","fname":"general","open":true,"_updatedAt":"2026-09-19T10:00:00.000Z"},
+ {"rid":"RIDPG","t":"p","name":"leads","fname":"leads","open":true,"_updatedAt":"2026-09-18T10:00:00.000Z"},
+ {"rid":"RIDDISC","t":"c","name":"aBcDeFgHiJkLmNoPq","fname":"Quarterly planning","prid":"RIDCH","open":true,"_updatedAt":"2026-09-17T10:00:00.000Z"},
+ {"rid":"RIDCLOSED","t":"c","name":"archived","fname":"archived","open":false,"_updatedAt":"2026-09-16T10:00:00.000Z"}
+]}

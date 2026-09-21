@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Test shim standing in for curl, so the suite never touches the network.
+#
+# rc.sh calls `curl` unqualified, so putting this directory first on PATH
+# intercepts every request. It maps an API endpoint to a fixture file, logs the
+# call, and can be told to fail specific URLs.
+#
+# Controlled by:
+#   FIXTURES        directory holding <endpoint>.json (and chat.search.<rid>.json)
+#   CURL_LOG        file receiving one line per call: <url> [payload]
+#   CURL_FAIL_URLS  substrings; a matching URL exits 7 (connection failure)
+#   CURL_FAIL_ONCE  substrings; the FIRST matching call fails, later ones succeed
+#   CURL_FAIL_DIR   scratch dir tracking which CURL_FAIL_ONCE urls already failed
+set -uo pipefail
+
+url=""
+payload=""
+next_is_data=0
+for arg in "$@"; do
+  if [ "$next_is_data" -eq 1 ]; then payload="$arg"; next_is_data=0; continue; fi
+  case "$arg" in
+    -d|--data) next_is_data=1 ;;
+    http://*|https://*) url="$arg" ;;
+  esac
+done
+
+# One line per call, so tests can count and match URLs. The payload can be
+# multi-line JSON, so it goes to its own file rather than corrupting the log.
+[ -n "${CURL_LOG:-}" ] && printf '%s\n' "$url" >> "$CURL_LOG"
+if [ -n "${CURL_BODY_DIR:-}" ] && [ -n "$payload" ]; then
+  mkdir -p "$CURL_BODY_DIR"
+  printf '%s' "$payload" > "$CURL_BODY_DIR/body.$(ls "$CURL_BODY_DIR" 2>/dev/null | wc -l | tr -d ' ').json"
+fi
+
+# Hard failure: simulates a refused connection, which curl reports as exit 7.
+for pat in ${CURL_FAIL_URLS:-}; do
+  case "$url" in *"$pat"*) exit 7 ;; esac
+done
+
+# Fail once, then succeed: proves the per-room retry actually fires.
+for pat in ${CURL_FAIL_ONCE:-}; do
+  case "$url" in
+    *"$pat"*)
+      marker="${CURL_FAIL_DIR:-/tmp}/$(printf '%s' "$pat" | tr -c 'a-zA-Z0-9' '_')"
+      if [ ! -f "$marker" ]; then : > "$marker"; exit 7; fi
+      ;;
+  esac
+done
+
+# /api/v1/chat.search?roomId=X... -> chat.search.X.json, else chat.search.json
+endpoint="${url#*/api/v1/}"
+name="${endpoint%%\?*}"
+query="${endpoint#*\?}"
+
+fixture="$FIXTURES/$name.json"
+case "$query" in
+  *roomId=*)
+    rid="${query#*roomId=}"; rid="${rid%%&*}"
+    [ -f "$FIXTURES/$name.$rid.json" ] && fixture="$FIXTURES/$name.$rid.json"
+    ;;
+esac
+
+if [ ! -f "$fixture" ]; then
+  printf '{"success":false,"error":"no fixture for %s"}' "$name"
+  exit 0
+fi
+
+# For chat.search, honor searchText: a fixture message is returned only when it
+# contains the term. Without this the shim answers every query identically and a
+# "no match" test could never fail.
+if [ "$name" = "chat.search" ] && [ -n "${query:-}" ]; then
+  case "$query" in
+    *searchText=*)
+      term="${query#*searchText=}"; term="${term%%&*}"
+      # percent-decode (the term is URL-escaped by rc.sh)
+      term="$(printf '%b' "${term//%/\\x}")"
+      jq --arg t "$term" '
+        .messages = [(.messages // [])[]
+          | select(($t == "") or (.msg | ascii_downcase | contains($t | ascii_downcase)))]
+      ' "$fixture"
+      exit 0
+      ;;
+  esac
+fi
+
+cat "$fixture"
