@@ -271,12 +271,52 @@ lookup_snippet() {
   [ "$(jq -r .text "$second")" = "$(cat "$TMP/body.md")" ]
 }
 
-@test "send-thread refuses a missing body file before posting anything" {
-  rc send-thread '#general' "Headline" "$TMP/does-not-exist.md"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"body file not found"* ]]
-  # Nothing was posted: a missing file must not leave a bare title in the room.
-  ! grep -q 'chat.postMessage' "$CURL_LOG"
+@test "send-thread refuses an unusable body file before posting anything" {
+  # Every local problem must be caught before the title goes out: posting it is
+  # irreversible, so a late failure strands a headline in a public channel.
+  : > "$TMP/empty.md"
+  printf 'x\n' > "$TMP/noperm.md"; chmod 000 "$TMP/noperm.md"
+
+  local f
+  for f in "$TMP/does-not-exist.md" "$TMP/empty.md" "$TMP/noperm.md"; do
+    : > "$CURL_LOG"
+    rc send-thread '#general' "Headline" "$f"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"body file"* ]]
+    ! grep -q 'chat.postMessage' "$CURL_LOG"
+  done
+  chmod 644 "$TMP/noperm.md"
+}
+
+@test "send-thread does not attempt the body when the title fails" {
+  printf 'body\n' > "$TMP/body.md"
+  CURL_TITLE_FAILS=1 rc send-thread '#general' "Headline" "$TMP/body.md"
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"could not post the thread title"* ]]
+  # Exactly one POST: retrying the body against a title that does not exist
+  # would post an orphan message into the channel.
+  [ "$(grep -c 'chat.postMessage' "$CURL_LOG")" -eq 1 ]
+}
+
+@test "send-thread survives a non-JSON response and still names the stranded title" {
+  # A proxy answering the reply with an HTML error page must not kill the
+  # script: that is precisely when the operator needs the title's id.
+  printf 'body\n' > "$TMP/body.md"
+  CURL_REPLY_HTML=1 rc send-thread '#general' "Headline" "$TMP/body.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"parse error"* ]]
+  [[ "$output" == *"title was posted"* ]]
+  [[ "$output" == *"MSGNEW"* ]]
+}
+
+@test "send-thread refuses to thread onto a response with no message id" {
+  # success:true with no .message._id would otherwise post the body with
+  # tmid "null", detaching it from the title instead of failing.
+  printf 'body\n' > "$TMP/body.md"
+  CURL_TITLE_NO_ID=1 rc send-thread '#general' "Headline" "$TMP/body.md"
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$output" != *"null"* ]]
+  [ "$(grep -c 'chat.postMessage' "$CURL_LOG")" -eq 1 ]
 }
 
 @test "send-thread reports a dangling title when the body fails" {

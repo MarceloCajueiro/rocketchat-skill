@@ -183,7 +183,15 @@ Confirm before sending, exactly as with any other message, and show **both** par
 
 Output is `OK: thread posted to <roomId> (title <id>)`.
 
-If the title posts but the body fails, the output says so and names the title's id - the room is left showing a headline with nothing behind it. Report that plainly and offer to delete it or add the body by hand; do not describe it as a clean failure.
+Every local problem - a missing, unreadable or empty body file - is refused before anything is posted, so a bad path cannot strand a headline.
+
+What cannot be prevented is the server accepting the title and then refusing the body. The output says so and names the title's id:
+
+```
+ERROR: the title was posted (abc123) but the body failed: <reason>. Delete it or add the body by hand.
+```
+
+The room is left showing a headline with nothing behind it. Report that plainly, quote the id, and offer to delete it or post the body by hand. Do not describe it as a clean failure, and **do not simply re-run the command** - that would post a second headline.
 
 When the user confirms a nickname you had to resolve, append a line to the contacts file so the next session skips the lookup.
 

@@ -153,6 +153,16 @@ rc_curl() {
   printf '%s' "$body"
 }
 
+# Extracts a human reason from a failed response, whatever shape it has.
+# A proxy can answer with an HTML error page, so jq must never be allowed to
+# abort the caller: on any unparsable body this still prints a usable sentence.
+rc_failure_reason() {
+  local body="$1" reason=""
+  reason=$(printf '%s' "$body" | jq -r '(.error // .message // .errorType // empty) | select(type == "string")' 2>/dev/null || true)
+  [ -n "$reason" ] || reason="unreadable response from Rocket.Chat"
+  printf '%s' "$reason"
+}
+
 cmd_whoami() {
   rc_curl GET "/api/v1/me" | jq -r 'if .success == false then "ERROR: \(.error // .message)" else "\(.name) (@\(.username))" end'
 }
@@ -198,33 +208,47 @@ cmd_send_thread() {
   local title="${2:?usage: rc.sh send-thread <@user|#channel> <title> <body-file>}"
   local file="${3:?usage: rc.sh send-thread <@user|#channel> <title> <body-file>}"
 
-  [ -f "$file" ] || { echo "ERROR: body file not found: $file" >&2; return 1; }
+  # Every local precondition is checked, and the body is read into the payload,
+  # BEFORE the title goes out. Posting the title is irreversible: a problem
+  # discovered afterwards leaves a headline in the room with nothing behind it.
+  [ -e "$file" ] || { echo "ERROR: body file not found: $file"; return 1; }
+  [ -r "$file" ] || { echo "ERROR: body file is not readable: $file"; return 1; }
+  [ -s "$file" ] || { echo "ERROR: body file is empty: $file"; return 1; }
+
+  local body_text
+  body_text=$(cat "$file") || { echo "ERROR: could not read the body file: $file"; return 1; }
 
   local root_payload root_body root_id room_id
   root_payload=$(jq -n --arg c "$target" --arg t "$title" '{channel:$c, text:$t}')
   root_body=$(rc_curl POST "/api/v1/chat.postMessage" -d "$root_payload")
 
   if ! printf '%s' "$root_body" | jq -e '.success == true' >/dev/null 2>&1; then
-    printf '%s' "$root_body" | jq -r '"ERROR: \(.error // .message // "could not post the thread title")"'
+    echo "ERROR: could not post the thread title: $(rc_failure_reason "$root_body")"
     return 0
   fi
 
-  root_id=$(printf '%s' "$root_body" | jq -r '.message._id')
-  room_id=$(printf '%s' "$root_body" | jq -r '.message.rid')
+  # A success response without usable ids cannot be threaded onto: `jq -r` would
+  # render a missing field as the string "null" and the reply would be posted
+  # with tmid "null", detaching it from the title instead of failing.
+  root_id=$(printf '%s' "$root_body" | jq -r '.message._id // empty' 2>/dev/null || true)
+  room_id=$(printf '%s' "$root_body" | jq -r '.message.rid // empty' 2>/dev/null || true)
+  if [ -z "$root_id" ] || [ -z "$room_id" ]; then
+    echo "ERROR: the title may have been posted, but the server did not return its id, so the body was not sent. Check $target and add the body by hand."
+    return 0
+  fi
 
   # tmid attaches this message to the title's thread. The title is already
   # posted, so a failure here leaves a bare headline in the room: say exactly
   # that, with the id, instead of reporting a clean failure.
   local reply_payload reply_body
-  reply_payload=$(jq -n --arg r "$room_id" --arg m "$root_id" --rawfile t "$file" \
+  reply_payload=$(jq -n --arg r "$room_id" --arg m "$root_id" --arg t "$body_text" \
     '{roomId:$r, tmid:$m, text:$t}')
   reply_body=$(rc_curl POST "/api/v1/chat.postMessage" -d "$reply_payload")
 
   if printf '%s' "$reply_body" | jq -e '.success == true' >/dev/null 2>&1; then
     echo "OK: thread posted to $room_id (title $root_id)"
   else
-    printf '%s' "$reply_body" \
-      | jq -r --arg id "$root_id" '"ERROR: the title was posted (\($id)) but the body failed: \(.error // .message). Delete it or add the body by hand."'
+    echo "ERROR: the title was posted ($root_id) but the body failed: $(rc_failure_reason "$reply_body"). Delete it or add the body by hand."
   fi
 }
 
