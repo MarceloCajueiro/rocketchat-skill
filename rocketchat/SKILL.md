@@ -8,15 +8,20 @@ description: Search and send Rocket.Chat messages from the terminal via the REST
 All access goes through `rc.sh`, in this skill's directory.
 **Use the path of the directory this file was loaded from** - it is already known, and it is always correct.
 
-If you need to locate it anyway, check the known install paths directly.
+If you need to locate it anyway, check the known install paths in order and take the first that exists.
 Never use `find ~`: it takes almost a minute on a real home directory and can return an unrelated or outdated copy.
+Do not use `ls` for this either - it sorts its arguments, so the first path listed is not the one you get back.
 
 ```bash
-RC=$(ls -d "$HOME"/.claude/skills/rocketchat/rc.sh \
-           "$HOME"/.agents/skills/rocketchat/rc.sh \
-           "$HOME"/.codex/skills/rocketchat/rc.sh \
-           .agents/skills/rocketchat/rc.sh \
-           .claude/skills/rocketchat/rc.sh 2>/dev/null | head -1)
+RC=
+for p in "$HOME"/.claude/skills/rocketchat/rc.sh \
+         "$HOME"/.agents/skills/rocketchat/rc.sh \
+         "$HOME"/.codex/skills/rocketchat/rc.sh \
+         .agents/skills/rocketchat/rc.sh \
+         .claude/skills/rocketchat/rc.sh; do
+  [ -f "$p" ] && { RC=$p; break; }
+done
+[ -n "$RC" ] || { echo "ERROR: rc.sh not found; install with 'npx skills add MarceloCajueiro/rocketchat-skill'" >&2; exit 1; }
 ```
 
 ```bash
@@ -88,7 +93,7 @@ The server uses MongoDB text search. Measured behavior:
 |---|---|
 | Multiple terms are **OR**, and a term with no match is ignored | 4 candidates cost one request; one wrong term does not zero the search |
 | Matches **whole words**, not fragments | `unific` will not find "unified". Write the full word |
-| Plurals are free, other inflections are not | `repo` finds "repos"; `unify` will not find "unified" |
+| Plurals are free; other inflections match only themselves | `repo` and `repos` return the same messages. A different inflection finds its own occurrences, not the ones you were after - so try more than one form of a key verb |
 | **Ignores accents and case** | `migracao` = `migração` = `Migração` |
 | `"in quotes"` = exact phrase | The precision tool when OR brings noise |
 | `-word` excludes | `deploy -staging` returns deploys that are not about staging |

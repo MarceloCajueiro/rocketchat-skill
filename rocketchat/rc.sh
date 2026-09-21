@@ -60,20 +60,40 @@ cmd_setup() {
   done
 
   if [ -z "$url" ] || [ -z "$uid" ] || [ -z "$token" ]; then
-    # Without a terminal, `read` blocks forever. An agent calling setup on its own
-    # would hang until its tool timeout instead of getting a usable error.
-    [ -t 0 ] || {
-      echo "ERROR: interactive setup needs a terminal. Pass --url, --user-id and --token, or run this yourself in a shell." >&2
-      return 1
+    # Only a terminal gets the prompts; a pipe feeding three lines still works.
+    # On stdin that never delivers - an agent's inherited descriptor - the read
+    # times out instead of hanging until the caller's own timeout.
+    local rc_read_opts=()
+    if [ -t 0 ]; then
+      echo "Rocket.Chat setup. Create a Personal Access Token at:"
+      echo "  Avatar > My Account > Personal Access Tokens"
+      echo "  Tick 'Ignore Two Factor Authentication', or every call will need a TOTP code."
+      echo
+    else
+      rc_read_opts=(-t "${RC_SETUP_READ_TIMEOUT:-10}")
+    fi
+
+    rc_prompt() {  # rc_prompt <var-name> <label> [hidden]
+      local __var="$1" __label="$2" __hidden="${3:-}" __value=""
+      [ -t 0 ] && printf '%s' "$__label"
+      if [ -n "$__hidden" ] && [ -t 0 ]; then
+        # read -s keeps the token off the screen and out of the shell history.
+        read -rs "${rc_read_opts[@]}" __value || __value=""
+        echo
+      else
+        read -r "${rc_read_opts[@]}" __value || __value=""
+      fi
+      printf -v "$__var" '%s' "$__value"
     }
-    echo "Rocket.Chat setup. Create a Personal Access Token at:"
-    echo "  Avatar > My Account > Personal Access Tokens"
-    echo "  Tick 'Ignore Two Factor Authentication', or every call will need a TOTP code."
-    echo
-    [ -z "$url" ]   && { printf 'Server URL (e.g. https://chat.example.com): '; read -r url; }
-    [ -z "$uid" ]   && { printf 'User ID: '; read -r uid; }
-    # read -s keeps the token off the screen and out of the shell history.
-    [ -z "$token" ] && { printf 'Auth token (input hidden): '; read -rs token; echo; }
+
+    [ -z "$url" ]   && rc_prompt url   'Server URL (e.g. https://chat.example.com): '
+    [ -z "$uid" ]   && rc_prompt uid   'User ID: '
+    [ -z "$token" ] && rc_prompt token 'Auth token (input hidden): ' hidden
+
+    if [ -z "$url" ] || [ -z "$uid" ] || [ -z "$token" ]; then
+      echo "ERROR: setup needs a terminal, three piped lines (url, user id, token), or the --url, --user-id and --token flags." >&2
+      return 1
+    fi
   fi
 
   url="${url%/}"
@@ -174,10 +194,12 @@ rc_subscriptions() {
   rc_curl GET "/api/v1/subscriptions.get"
 }
 
-# room <@user|#channel> - resolves the roomId. Never creates a room.
+# Internal: resolves a target to `roomId<TAB>type`. Never creates a room.
 # chat.search requires a roomId; the API does not accept a room name.
-cmd_room() {
-  local target="${1:?usage: rc.sh room <@user|#channel>}"
+# The type is what tells a private group (p) from a channel (c), which the
+# message URL depends on. `cmd_room` prints only the id, as the CLI documents.
+rc_room_lookup() {
+  local target="$1"
   local kind name
   case "$target" in
     @*) kind=d; name="${target#@}" ;;
@@ -190,6 +212,17 @@ cmd_room() {
       ([.update[] | select(($k == "any" or (if $k == "c" then .t != "d" else .t == $k end)) and .name == $n)]
        | if length == 0 then "NONE" else "\(.[0].rid)\t\(.[0].t)" end)
     end'
+}
+
+# room <@user|#channel> - prints the roomId alone, as documented in the README.
+cmd_room() {
+  local target="${1:?usage: rc.sh room <@user|#channel>}"
+  local found
+  found=$(rc_room_lookup "$target")
+  case "$found" in
+    NONE|ERROR:*) printf '%s\n' "$found" ;;
+    *) printf '%s\n' "${found%%$'\t'*}" ;;
+  esac
 }
 
 # Searches ONE already-resolved room.
@@ -238,7 +271,7 @@ cmd_search() {
 
   if [ -n "$target" ]; then
     local found rid rtype
-    found=$(cmd_room "$target")
+    found=$(rc_room_lookup "$target")
     case "$found" in
       NONE) echo "ERROR: room not found: $target"; return 0 ;;
       ERROR:*) echo "$found"; return 0 ;;

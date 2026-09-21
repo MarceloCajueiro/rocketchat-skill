@@ -30,6 +30,9 @@ Non-interactive, for a dotfiles or provisioning script:
 
 ```bash
 rc.sh setup --url https://chat.example.com --user-id YOUR_ID --token YOUR_TOKEN
+
+# or three lines on stdin, in this order:
+printf '%s\n' "https://chat.example.com" "YOUR_ID" "YOUR_TOKEN" | rc.sh setup
 ```
 
 Credentials are stored in `${XDG_CONFIG_HOME:-~/.config}/rocketchat/config` with mode `600`.
