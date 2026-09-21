@@ -17,6 +17,7 @@ RC=
 for p in "$HOME"/.claude/skills/rocketchat/rc.sh \
          "$HOME"/.agents/skills/rocketchat/rc.sh \
          "$HOME"/.codex/skills/rocketchat/rc.sh \
+         "$HOME"/mnt/.skills/rocketchat/rc.sh \
          .agents/skills/rocketchat/rc.sh \
          .claude/skills/rocketchat/rc.sh; do
   [ -f "$p" ] && { RC=$p; break; }
@@ -42,6 +43,7 @@ The link opens that exact message. Rooms appear as `@user`, `#channel` or `discu
 Text longer than 300 characters is truncated with ` [...]`.
 
 If any command answers `ERROR: no credentials`, tell the user to run `rc.sh setup`.
+In a sandbox whose `$HOME` is generated per session (Claude Desktop's Cowork, for instance), the credentials exist but sit under the real user's home: point `XDG_CONFIG_HOME` at the mounted host path rather than running setup again.
 Never ask them to paste a token into the chat - the setup prompt hides the input, a chat message would land in the transcript.
 
 ---

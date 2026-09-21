@@ -12,6 +12,8 @@ Ask in plain language and the agent does the rest:
 
 It works with any agent that supports skills - Claude Code, Codex, Cursor, OpenCode and others.
 
+**Using Claude Desktop?** It is not one runtime but three, and the answer differs for each. See [Claude Desktop](#claude-desktop) below before installing.
+
 ## Install
 
 ```bash
@@ -61,6 +63,40 @@ In Rocket.Chat, in the browser:
 - Rocket.Chat server with the REST API enabled (the default)
 
 Parallel channel scanning needs bash ≥ 4.3. On stock macOS (bash 3.2) the skill automatically falls back to a serial scan, which is slower but safe. `brew install bash` if you want the faster path.
+
+## Claude Desktop
+
+Claude Desktop is a single app containing three runtimes, and this skill's verdict differs for each. *Checked 2026-09-21 against Claude Desktop 2.2553.1 on macOS; this area moves fast.*
+
+| Where you are typing | Does this skill work? |
+|---|---|
+| **Claude Code tab** | **Yes, as-is.** `npx skills add` is the whole recipe |
+| **Cowork** (local VM) | **Yes, with one environment variable.** See below |
+| **Chat window** (Customize → Skills) | **No, and no fix exists.** Use an MCP server instead |
+
+### The chat window cannot run this skill
+
+Skills in the chat window execute in a sandbox with **no outbound network access and no access to your filesystem** ([code execution tool docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/code-execution-tool)). Two independent blockers, either fatal on its own: `rc.sh` cannot reach your Rocket.Chat server, and it cannot read your credentials at `~/.config/rocketchat/config`.
+
+This is not a plan limitation - custom skills are available on every tier, including Free. No upgrade changes it. A bash script that talks to a private server is simply the wrong shape for that sandbox.
+
+**The route that does work there is a local MCP server**, which Claude Desktop runs as a normal process on your machine, with your filesystem and your network. That server does not exist yet - see [#3](https://github.com/MarceloCajueiro/rocketchat-skill/issues/3).
+
+### Cowork needs one environment variable
+
+Cowork runs a local Ubuntu VM that *does* have network access and *does* mount your home directory. But `$HOME` inside the VM is a generated per-session path, not yours, so the credentials written by `rc.sh setup` are not where the script looks.
+
+Point it at your real config directory:
+
+```bash
+export XDG_CONFIG_HOME=/mnt/.virtiofs-root/shared/Users/<you>/.config
+```
+
+Or pass the three credential variables directly - environment always wins over the config file.
+
+The VM also needs `jq`, which a stock Ubuntu image does not include (`sudo apt-get install -y jq`).
+
+**Unverified:** whether Cowork executes a skill's scripts at all, rather than only reading `SKILL.md` as prose. One command settles it - run `rc.sh whoami` in a Cowork session. If you try this, please report what happened in an issue.
 
 ## What the agent can do
 
