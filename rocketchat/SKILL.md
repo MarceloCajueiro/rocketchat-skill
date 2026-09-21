@@ -29,6 +29,7 @@ done
 rc.sh setup                          # one-time: stores credentials
 rc.sh whoami                         # verify credentials, prints "Name (@username)"
 rc.sh find jane                      # look up users: name<TAB>@username<TAB>status
+rc.sh get "<message link>"           # one message, from a pasted permalink or its id
 rc.sh search "deploy" @jane.doe      # search one DM
 rc.sh search "release" "#general" 10 # search a channel, 10 results
 rc.sh search "postgres upgrade"      # search recently active rooms
@@ -60,6 +61,14 @@ Never ask them to paste a token into the chat - the setup prompt hides the input
 ---
 
 # Searching
+
+## 0. A pasted link is not a search
+
+When the user pastes a message permalink - `.../direct/<id>?msg=<id>`, `.../channel/<name>?msg=<id>` - they are pointing at one exact message, not describing one to hunt for.
+
+**Run `rc.sh get "<link>"`.** It returns that message in the same TSV shape as a search, with the text whole and its attachments listed.
+
+Searching for it instead cannot work: `chat.search` matches words, not ids, and the room in a DM permalink is a room id, which no search target accepts. Trying search first burns requests and ends in `NONE` on a message that is sitting right there.
 
 ## 1. A question is not a search term
 
@@ -214,6 +223,7 @@ When the user confirms a nickname you had to resolve, append a line to the conta
 - `ERROR: no credentials` → run `rc.sh setup`.
 - `unauthorized` or `You must be logged in` → invalid or expired token. Create a new Personal Access Token and run `rc.sh setup` again.
 - `totp-required` → the token was created without ticking "Ignore Two Factor Authentication". Create another one with that box checked.
+- `ERROR: no such message, or it is in a room this account cannot read` → the server sends a bare `{"success":false}` for both cases, so they cannot be told apart. Report both possibilities; never tell the user the message does not exist, because it may simply be out of this account's reach.
 - `ERROR: room not found` → wrong username or channel, **or** a real person the user has never exchanged a DM with. The skill does not create a conversation just to search. Run `rc.sh find` to check the user exists.
 - `NONE` on a global search → the room may be outside the scanned window. Raise `RC_SEARCH_ROOMS`, use `RC_SEARCH_KIND=channels`, or search scoped.
 - `WARNING: coverage is incomplete` → the server refused some connections. This is not "it does not exist": wait about a minute and retry, or search the named rooms scoped.

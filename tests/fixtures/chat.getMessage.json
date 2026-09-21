@@ -1,0 +1,8 @@
+{"success":true,"message":{
+  "_id":"MSGID1",
+  "rid":"RIDDM",
+  "ts":"2026-09-20T15:06:15.585Z",
+  "u":{"username":"john.roe","name":"John Roe"},
+  "msg":"can we extract the dashboard usage?\nany data we have access to:",
+  "attachments":[{"title":"Clipboard.png","image_type":"image/png"}]
+}}
