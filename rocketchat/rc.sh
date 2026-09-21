@@ -60,6 +60,12 @@ cmd_setup() {
   done
 
   if [ -z "$url" ] || [ -z "$uid" ] || [ -z "$token" ]; then
+    # Without a terminal, `read` blocks forever. An agent calling setup on its own
+    # would hang until its tool timeout instead of getting a usable error.
+    [ -t 0 ] || {
+      echo "ERROR: interactive setup needs a terminal. Pass --url, --user-id and --token, or run this yourself in a shell." >&2
+      return 1
+    }
     echo "Rocket.Chat setup. Create a Personal Access Token at:"
     echo "  Avatar > My Account > Personal Access Tokens"
     echo "  Tick 'Ignore Two Factor Authentication', or every call will need a TOTP code."
@@ -182,7 +188,7 @@ cmd_room() {
     if .success == false then "ERROR: \(.error // .message)"
     else
       ([.update[] | select(($k == "any" or (if $k == "c" then .t != "d" else .t == $k end)) and .name == $n)]
-       | if length == 0 then "NONE" else .[0].rid end)
+       | if length == 0 then "NONE" else "\(.[0].rid)\t\(.[0].t)" end)
     end'
 }
 
@@ -231,17 +237,20 @@ cmd_search() {
   fi
 
   if [ -n "$target" ]; then
-    local rid
-    rid=$(cmd_room "$target")
-    case "$rid" in
+    local found rid rtype
+    found=$(cmd_room "$target")
+    case "$found" in
       NONE) echo "ERROR: room not found: $target"; return 0 ;;
-      ERROR:*) echo "$rid"; return 0 ;;
+      ERROR:*) echo "$found"; return 0 ;;
     esac
+    rid="${found%%$'\t'*}"
+    rtype="${found##*$'\t'}"
     local out path
-    case "$target" in
-      @*) path="$BASE/direct/${target#@}" ;;
-      \#*) path="$BASE/channel/${target#\#}" ;;
-      *)  path="" ;;
+    # The room type decides the URL segment: a private group is /group/, not /channel/.
+    case "$rtype" in
+      d) path="$BASE/direct/${target#@}" ;;
+      p) path="$BASE/group/${target#\#}" ;;
+      *) path="$BASE/channel/${target#\#}" ;;
     esac
     out=$(rc_search_room "$rid" "$term" "$count" "$target" "$path")
     [ -n "$out" ] && printf '%s\n' "$out" || echo "NONE"
