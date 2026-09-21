@@ -66,6 +66,17 @@ esac
 #   CURL_REPLY_HTML    the reply gets a proxy's HTML error page, not JSON
 #   CURL_TITLE_FAILS   the title is refused, so the reply must never be sent
 #   CURL_TITLE_NO_ID   the title "succeeds" but carries no usable message id
+# A message id that does not exist, or sits in a room the caller cannot read,
+# answers with the same failure shape:
+#   CURL_MSG_NOT_FOUND
+#   CURL_MSG_NOT_FOUND        with an error field
+#   CURL_MSG_BARE_FALSE       bare {"success":false}, which is what the real
+#                             server sends for a wrong id
+if [ "$name" = "chat.getMessage" ]; then
+  [ -n "${CURL_MSG_NOT_FOUND:-}" ] && { printf '{"success":false,"error":"Message not found"}'; exit 0; }
+  [ -n "${CURL_MSG_BARE_FALSE:-}" ] && { printf '{"success":false}'; exit 0; }
+fi
+
 if [ "$name" = "chat.postMessage" ]; then
   case "$payload" in
     *'"tmid"'*)

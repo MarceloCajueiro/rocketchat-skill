@@ -116,6 +116,7 @@ Your name and handle means it works. `jq: command not found` means install it. A
 
 | Ask | What happens |
 |---|---|
+| "do you have access to this message?" *(pasting a link)* | Fetches that exact message by its id, with the text whole and its attachments listed |
 | "which channel has the message about X" | Scans every channel, group and discussion, and answers with a direct link |
 | "what did Jane say about X" | Searches that DM and summarizes, newest first |
 | "search the chat for X" | Scans the most recently active rooms |
@@ -133,6 +134,7 @@ rc.sh setup                            # store credentials
 rc.sh whoami                           # verify credentials
 rc.sh find jane                        # look up users
 rc.sh room @jane.doe                   # resolve a roomId
+rc.sh get "https://chat.example.com/direct/RID?msg=MSGID"   # one message by permalink or id
 rc.sh search "deploy" @jane.doe        # search one DM
 rc.sh search "release" "#general" 10   # search a channel
 rc.sh search "postgres" 20             # search recently active rooms
@@ -182,6 +184,8 @@ The documented install-path lookup in `SKILL.md` is extracted from the file and 
 ## Design notes
 
 **There is no global search in the Rocket.Chat REST API.** `chat.search` requires a `roomId`, so "search everywhere" is a loop over your rooms, one request each. That shapes everything else: scanning is the expensive part, and coverage is a real property worth reporting.
+
+**A permalink is fetched, not searched.** `chat.search` matches words, never ids, and the room in a DM permalink is a room id, which no search target accepts - so the one thing a pasted link is good for was the one thing search could not do. `get` calls `chat.getMessage` instead, and labels the room from your subscriptions rather than from the link, which carries an id for a DM and a name elsewhere.
 
 **Coverage is stated, never assumed.** If some rooms fail, the output says `WARNING: scanned 51 of 64 rooms` and names each failure. Silence about a failed room would turn into "that message does not exist", which is worse than a slow answer.
 
