@@ -67,9 +67,15 @@ lookup_snippet() {
   [ "$status" -eq 0 ]
   local cfg="$XDG_CONFIG_HOME/rocketchat/config"
   [ -f "$cfg" ]
-  # 600 on both GNU and BSD stat
+  # GNU stat uses -c, BSD stat uses -f. On Linux `stat -f` is valid but reports
+  # the filesystem, so it succeeds with the wrong answer instead of failing:
+  # pick by what the platform's stat actually supports.
   local mode
-  mode="$(stat -f '%Lp' "$cfg" 2>/dev/null || stat -c '%a' "$cfg")"
+  if stat -c '%a' "$cfg" >/dev/null 2>&1; then
+    mode="$(stat -c '%a' "$cfg")"
+  else
+    mode="$(stat -f '%Lp' "$cfg")"
+  fi
   [ "$mode" = "600" ]
   grep -q '^ROCKETCHAT_URL=https://chat.example.com$' "$cfg"   # trailing slash stripped
 }
