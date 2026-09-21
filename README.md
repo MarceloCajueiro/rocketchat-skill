@@ -71,7 +71,7 @@ Claude Desktop is a single app containing three runtimes, and this skill's verdi
 | Where you are typing | Does this skill work? |
 |---|---|
 | **Claude Code tab** | **Yes, as-is.** `npx skills add` is the whole recipe |
-| **Cowork** (local VM) | **Yes, with one environment variable.** See below |
+| **Cowork** (local VM) | **Probably, with one environment variable** - untested, see below |
 | **Chat window** (Customize → Skills) | **No, and no fix exists.** Use an MCP server instead |
 
 ### The chat window cannot run this skill
@@ -82,7 +82,7 @@ This is not a plan limitation - custom skills are available on every tier, inclu
 
 **The route that does work there is a local MCP server**, which Claude Desktop runs as a normal process on your machine, with your filesystem and your network. That server does not exist yet - see [#3](https://github.com/MarceloCajueiro/rocketchat-skill/issues/3).
 
-### Cowork needs one environment variable
+### Cowork: one environment variable, and three things nobody has checked yet
 
 Cowork runs a local Ubuntu VM that *does* have network access and *does* mount your home directory. But `$HOME` inside the VM is a generated per-session path, not yours, so the credentials written by `rc.sh setup` are not where the script looks.
 
@@ -92,11 +92,23 @@ Point it at your real config directory:
 export XDG_CONFIG_HOME=/mnt/.virtiofs-root/shared/Users/<you>/.config
 ```
 
-Or pass the three credential variables directly - environment always wins over the config file.
+Setting the three credential variables directly also works - environment always wins over the config file - but then the token lives in a launch environment instead of the `600`-mode file it already sits in.
 
-The VM also needs `jq`, which a stock Ubuntu image does not include (`sudo apt-get install -y jq`).
+Running `rc.sh setup` inside the VM is the wrong move: `$HOME` is regenerated each session, so those credentials die with it.
 
-**Unverified:** whether Cowork executes a skill's scripts at all, rather than only reading `SKILL.md` as prose. One command settles it - run `rc.sh whoami` in a Cowork session. If you try this, please report what happened in an issue.
+**This path is reasoned from logs, not executed.** Three things are unconfirmed, and any one of them would break it:
+
+- **`jq`.** The image is Ubuntu 22.04, which ships `curl` but not `jq`, and the script hard-fails without it. Likely fix: `sudo apt-get install -y jq`.
+- **The mount path** above is what the host logs show. Whether a skill process sees that exact path, and whether it survives Desktop updates, is unknown.
+- **Whether Cowork runs a skill's scripts at all**, rather than only reading `SKILL.md` as prose.
+
+One command settles all three. In a Cowork session, with `XDG_CONFIG_HOME` set:
+
+```bash
+rc.sh whoami
+```
+
+Your name and handle means it works. `jq: command not found` means install it. A path or credentials error means the mount path is wrong. **If you try this, please report the result in an issue** - it turns this section from reasoning into fact.
 
 ## What the agent can do
 
