@@ -1,6 +1,6 @@
 ---
 name: rocketchat
-description: Search and send Rocket.Chat messages from the terminal via the REST API. Use when the user wants to find something said in chat ("what did X say about Y", "which channel has that message about Z", "search the chat", "find that thread"), or to send a message to a person or channel ("message X", "tell the team", "ask X about Y", "post this in #channel").
+description: Search and send Rocket.Chat messages from the terminal via the REST API. Use when the user wants to find something said in chat ("what did X say about Y", "which channel has that message about Z", "search the chat", "find that thread"), or to send a message to a person or channel ("message X", "tell the team", "ask X about Y", "post this in #channel"), including posting a long announcement as a thread - a headline in the room with the detail behind it.
 ---
 
 # Rocket.Chat from the terminal
@@ -34,6 +34,7 @@ rc.sh search "postgres upgrade"      # search recently active rooms
 rc.sh send @jane.doe "text"          # send a DM (creates the conversation if needed)
 rc.sh send "#general" "text"         # send to a channel
 rc.sh send-file @jane.doe draft.txt  # long or multi-line message, read from a file
+rc.sh send-thread "#general" "Headline" body.md   # headline in the room, detail in its thread
 ```
 
 Output is TSV, one line per message: `date<TAB>room<TAB>@author<TAB>text<TAB>link`.
@@ -162,6 +163,27 @@ Long, multi-line or punctuation-heavy text: write it to a temporary file and use
 That avoids shell escaping problems.
 
 Output is `OK: sent to <roomId>` or `ERROR: <reason>`. Report what actually happened.
+
+## Announcing something long in a channel: use a thread
+
+A long announcement pasted straight into a channel floods everyone's screen.
+The shape people actually use is a **headline in the room, with the detail inside its thread**: one short line everybody sees, and the full text unfolded only by whoever opens it.
+
+```bash
+rc.sh send-thread "#general" "🚀 *Feature X is live* - details in the thread" body.md
+```
+
+The title is posted as a normal message; the body file becomes the first reply inside its thread.
+
+**Use this instead of `send-file` whenever the message is long and goes to a channel** - an announcement, a release note, an instruction set, anything with paragraphs or a list. A direct message to one person rarely needs it.
+
+Write the title so it stands alone: what happened, and who needs to act. "Details in the thread" at the end tells the reader where the rest is.
+
+Confirm before sending, exactly as with any other message, and show **both** parts: the title as the room will see it, and the body.
+
+Output is `OK: thread posted to <roomId> (title <id>)`.
+
+If the title posts but the body fails, the output says so and names the title's id - the room is left showing a headline with nothing behind it. Report that plainly and offer to delete it or add the body by hand; do not describe it as a clean failure.
 
 When the user confirms a nickname you had to resolve, append a line to the contacts file so the next session skips the lookup.
 

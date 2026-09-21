@@ -188,6 +188,46 @@ cmd_send_file() {
     | jq -r 'if .success then "OK: sent to \(.message.rid)" else "ERROR: \(.error // .message)" end'
 }
 
+# send-thread <@user|#channel> <title> <body-file>
+# Posts the title as a normal message, then the body as a reply inside its thread.
+# The channel shows one short line; the long text lives behind it, unfolded only
+# by whoever opens the thread. This is the announcement shape: a headline that
+# does not flood the room, with the detail one click away.
+cmd_send_thread() {
+  local target="${1:?usage: rc.sh send-thread <@user|#channel> <title> <body-file>}"
+  local title="${2:?usage: rc.sh send-thread <@user|#channel> <title> <body-file>}"
+  local file="${3:?usage: rc.sh send-thread <@user|#channel> <title> <body-file>}"
+
+  [ -f "$file" ] || { echo "ERROR: body file not found: $file" >&2; return 1; }
+
+  local root_payload root_body root_id room_id
+  root_payload=$(jq -n --arg c "$target" --arg t "$title" '{channel:$c, text:$t}')
+  root_body=$(rc_curl POST "/api/v1/chat.postMessage" -d "$root_payload")
+
+  if ! printf '%s' "$root_body" | jq -e '.success == true' >/dev/null 2>&1; then
+    printf '%s' "$root_body" | jq -r '"ERROR: \(.error // .message // "could not post the thread title")"'
+    return 0
+  fi
+
+  root_id=$(printf '%s' "$root_body" | jq -r '.message._id')
+  room_id=$(printf '%s' "$root_body" | jq -r '.message.rid')
+
+  # tmid attaches this message to the title's thread. The title is already
+  # posted, so a failure here leaves a bare headline in the room: say exactly
+  # that, with the id, instead of reporting a clean failure.
+  local reply_payload reply_body
+  reply_payload=$(jq -n --arg r "$room_id" --arg m "$root_id" --rawfile t "$file" \
+    '{roomId:$r, tmid:$m, text:$t}')
+  reply_body=$(rc_curl POST "/api/v1/chat.postMessage" -d "$reply_payload")
+
+  if printf '%s' "$reply_body" | jq -e '.success == true' >/dev/null 2>&1; then
+    echo "OK: thread posted to $room_id (title $root_id)"
+  else
+    printf '%s' "$reply_body" \
+      | jq -r --arg id "$root_id" '"ERROR: the title was posted (\($id)) but the body failed: \(.error // .message). Delete it or add the body by hand."'
+  fi
+}
+
 # Subscriptions: every room the user belongs to, with rid, type and name.
 # One call, reused by `room` and by the global search.
 rc_subscriptions() {
@@ -370,5 +410,6 @@ case "${1:-}" in
   search)    shift; cmd_search "$@" ;;
   send)      shift; cmd_send "$@" ;;
   send-file) shift; cmd_send_file "$@" ;;
-  *) echo "usage: rc.sh {setup|whoami|find <term>|room <target>|search <term> [target] [count]|send <target> <text>|send-file <target> <file>}" >&2; exit 1 ;;
+  send-thread) shift; cmd_send_thread "$@" ;;
+  *) echo "usage: rc.sh {setup|whoami|find <term>|room <target>|search <term> [target] [count]|send <target> <text>|send-file <target> <file>|send-thread <target> <title> <body-file>}" >&2; exit 1 ;;
 esac

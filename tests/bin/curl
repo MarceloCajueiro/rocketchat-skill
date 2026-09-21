@@ -60,6 +60,14 @@ case "$query" in
     ;;
 esac
 
+# CURL_REPLY_FAILS: refuse a postMessage that carries a tmid, so a test can
+# exercise a thread whose title posted but whose body did not.
+if [ -n "${CURL_REPLY_FAILS:-}" ] && [ "$name" = "chat.postMessage" ]; then
+  case "$payload" in
+    *'"tmid"'*) printf '{"success":false,"error":"reply refused"}'; exit 0 ;;
+  esac
+fi
+
 if [ ! -f "$fixture" ]; then
   printf '{"success":false,"error":"no fixture for %s"}' "$name"
   exit 0

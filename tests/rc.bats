@@ -252,6 +252,43 @@ lookup_snippet() {
   [ "$(jq -r .text "$body")" = "$(cat "$TMP/msg.txt")" ]
 }
 
+@test "send-thread posts the title, then the body inside its thread" {
+  printf 'Long body.\n\nSecond paragraph with *markdown*.\n' > "$TMP/body.md"
+  rc send-thread '#general' "Headline goes here" "$TMP/body.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OK: thread posted"* ]]
+
+  local first second
+  first="$(ls "$CURL_BODY_DIR"/body.*.json | sed -n 1p)"
+  second="$(ls "$CURL_BODY_DIR"/body.*.json | sed -n 2p)"
+
+  # The title goes to the channel as an ordinary message, with no tmid.
+  [ "$(jq -r .text "$first")" = "Headline goes here" ]
+  [ "$(jq -r '.tmid // "none"' "$first")" = "none" ]
+
+  # The body is a reply carrying tmid, so it lands inside the title's thread.
+  [ "$(jq -r .tmid "$second")" = "MSGNEW" ]
+  [ "$(jq -r .text "$second")" = "$(cat "$TMP/body.md")" ]
+}
+
+@test "send-thread refuses a missing body file before posting anything" {
+  rc send-thread '#general' "Headline" "$TMP/does-not-exist.md"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"body file not found"* ]]
+  # Nothing was posted: a missing file must not leave a bare title in the room.
+  ! grep -q 'chat.postMessage' "$CURL_LOG"
+}
+
+@test "send-thread reports a dangling title when the body fails" {
+  printf 'body\n' > "$TMP/body.md"
+  # The title succeeds; the reply is refused. The room is left with a headline
+  # and no content, and the operator has to be told exactly that.
+  CURL_FAIL_ONCE="" CURL_REPLY_FAILS=1 rc send-thread '#general' "Headline" "$TMP/body.md"
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"title was posted"* ]]
+  [[ "$output" == *"MSGNEW"* ]]
+}
+
 # --- find -------------------------------------------------------------------
 
 @test "find returns name, username and status" {
