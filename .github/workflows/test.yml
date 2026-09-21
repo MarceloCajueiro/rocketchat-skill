@@ -24,6 +24,10 @@ jobs:
       - name: Install bats
         uses: bats-core/bats-action@3.0.0
         with:
+          # Without a pinned version the action asks api.github.com which
+          # release is latest, unauthenticated - and that call is rate limited
+          # per runner IP, so the macOS runner intermittently gets a 403.
+          bats-version: 1.11.1
           support-install: false
           assert-install: false
           detik-install: false
