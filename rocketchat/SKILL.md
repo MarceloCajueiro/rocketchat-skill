@@ -17,6 +17,7 @@ RC=
 for p in "$HOME"/.claude/skills/rocketchat/rc.sh \
          "$HOME"/.agents/skills/rocketchat/rc.sh \
          "$HOME"/.codex/skills/rocketchat/rc.sh \
+         "$HOME"/mnt/.skills/rocketchat/rc.sh \
          .agents/skills/rocketchat/rc.sh \
          .claude/skills/rocketchat/rc.sh; do
   [ -f "$p" ] && { RC=$p; break; }
@@ -43,6 +44,17 @@ The link opens that exact message. Rooms appear as `@user`, `#channel` or `discu
 Text longer than 300 characters is truncated with ` [...]`.
 
 If any command answers `ERROR: no credentials`, tell the user to run `rc.sh setup`.
+
+**First check whether the credentials merely sit somewhere else.** In a sandbox that generates a `$HOME` per session (Claude Desktop's Cowork, for instance) the config file exists under the real user's home, reachable through a mount, and running setup again would write a copy that dies with the session.
+
+You are in that situation when `$HOME` looks generated rather than personal - a path like `/sessions/<name>` instead of `/Users/<name>` or `/home/<name>`. When it does, look for the real config before asking for anything:
+
+```bash
+# The mount directory can be a dotted name, which `*` does not match.
+find /mnt -maxdepth 6 -type d -path '*/shared/*/.config/rocketchat' 2>/dev/null | head -1
+```
+
+If that finds a directory, export `XDG_CONFIG_HOME` to its parent and retry. If it finds nothing, fall back to asking the user to run setup.
 Never ask them to paste a token into the chat - the setup prompt hides the input, a chat message would land in the transcript.
 
 ---

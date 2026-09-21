@@ -12,6 +12,8 @@ Ask in plain language and the agent does the rest:
 
 It works with any agent that supports skills - Claude Code, Codex, Cursor, OpenCode and others.
 
+**Using Claude Desktop?** It is not one runtime but three, and the answer differs for each. See [Claude Desktop](#claude-desktop) below before installing.
+
 ## Install
 
 ```bash
@@ -61,6 +63,54 @@ In Rocket.Chat, in the browser:
 - Rocket.Chat server with the REST API enabled (the default)
 
 Parallel channel scanning needs bash ≥ 4.3. On stock macOS (bash 3.2) the skill automatically falls back to a serial scan, which is slower but safe. `brew install bash` if you want the faster path.
+
+## Claude Desktop
+
+Claude Desktop is a single app containing three runtimes, and this skill's verdict differs for each. *Checked 2026-09-21 against Claude Desktop 2.2553.1 on macOS; this area moves fast.*
+
+| Where you are typing | Does this skill work? |
+|---|---|
+| **Claude Code tab** | **Yes, as-is.** `npx skills add` is the whole recipe |
+| **Cowork** (local VM) | **Probably, with one environment variable** - untested, see below |
+| **Chat window** (Customize → Skills) | **No, and no fix exists.** Use an MCP server instead |
+
+### The chat window cannot run this skill
+
+Skills in the chat window execute in a sandbox, and a sandbox is the wrong place for this skill twice over: `rc.sh` cannot reach your Rocket.Chat server, and it cannot read your credentials at `~/.config/rocketchat/config`. Either blocker is fatal on its own.
+
+Anthropic documents the sandbox running code for the API as having **no outbound network access and full isolation from the host** ([code execution tool docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/code-execution-tool)). That page covers the API, not the Desktop chat window specifically, so the restriction here is reasoned by analogy rather than quoted from a page about Skills. Nobody has published a way to reach a private server from a chat-window skill, and the mechanism would have to change for one to exist.
+
+This is not a plan limitation - custom skills are available on every tier, including Free. No upgrade changes it. A bash script that talks to a private server is simply the wrong shape for that sandbox.
+
+**The route that does work there is a local MCP server**, which Claude Desktop runs as a normal process on your machine, with your filesystem and your network. That server does not exist yet - see [#3](https://github.com/MarceloCajueiro/rocketchat-skill/issues/3).
+
+### Cowork: one environment variable, and three things nobody has checked yet
+
+Cowork runs a local Ubuntu VM that *does* have network access and *does* mount your home directory. But `$HOME` inside the VM is a generated per-session path, not yours, so the credentials written by `rc.sh setup` are not where the script looks.
+
+Point it at your real config directory:
+
+```bash
+export XDG_CONFIG_HOME=/mnt/.virtiofs-root/shared/Users/<you>/.config
+```
+
+Setting the three credential variables directly also works - environment always wins over the config file - but then the token lives in a launch environment instead of the `600`-mode file it already sits in.
+
+Running `rc.sh setup` inside the VM is the wrong move: `$HOME` is regenerated each session, so those credentials die with it.
+
+**This path is reasoned from logs, not executed.** Three things are unconfirmed, and any one of them would break it:
+
+- **`jq`.** The image is Ubuntu 22.04, which ships `curl` but not `jq`, and the script hard-fails without it. Likely fix: `sudo apt-get install -y jq`.
+- **The mount path** above is what the host logs show. Whether a skill process sees that exact path, and whether it survives Desktop updates, is unknown.
+- **Whether Cowork runs a skill's scripts at all**, rather than only reading `SKILL.md` as prose.
+
+One command settles all three. In a Cowork session, with `XDG_CONFIG_HOME` set:
+
+```bash
+rc.sh whoami
+```
+
+Your name and handle means it works. `jq: command not found` means install it. A path or credentials error means the mount path is wrong. **If you try this, please report the result in an issue** - it turns this section from reasoning into fact.
 
 ## What the agent can do
 

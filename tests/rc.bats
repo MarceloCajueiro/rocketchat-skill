@@ -357,6 +357,19 @@ cat \"\$RC\""
   [ "$output" = "CLAUDE" ]
 }
 
+@test "documented lookup finds the sandbox mount path (Cowork)" {
+  # A per-session $HOME, as Claude Desktop's Cowork generates: the skill is
+  # mounted under $HOME/mnt/.skills, and none of the usual paths exist.
+  local h="$TMP/sessionhome" w="$TMP/nowhere"
+  mkdir -p "$h/mnt/.skills/rocketchat" "$w"
+  echo MOUNTED > "$h/mnt/.skills/rocketchat/rc.sh"
+  run env HOME="$h" "$RC_BASH" -c "cd '$w' || exit 1
+$(lookup_snippet)
+cat \"\$RC\""
+  [ "$status" -eq 0 ]
+  [ "$output" = "MOUNTED" ]
+}
+
 @test "documented lookup reports a missing install instead of dying silently" {
   local h="$TMP/emptyhome" w="$TMP/neutral"
   mkdir -p "$h" "$w"
