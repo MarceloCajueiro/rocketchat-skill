@@ -149,7 +149,7 @@ Search output is TSV: `date<TAB>room<TAB>@author<TAB>text<TAB>link`.
 The server uses MongoDB text search:
 
 - Multiple words are **OR**, and a word with no match is ignored
-- Matches **whole words**: `unific` will not find "unified"
+- **Stems in English**: `deploy`, `deploys` and `deploying` are one query. Not prefix matching (`deplo` finds nothing), and the stemmer only knows English, so inflections in another language are separate searches
 - Accents and case are ignored
 - `"in quotes"` is an exact phrase
 - `-word` excludes
@@ -178,6 +178,12 @@ The suite never touches the network: `tests/bin/curl` shadows `curl` on `PATH` a
 It is checked against the commit whose defects it covers - `RC=<old rc.sh> SKILL_MD=<old SKILL.md> bats tests/rc.bats` must go red. A test that cannot fail proves nothing, so CI asserts that too.
 
 The documented install-path lookup in `SKILL.md` is extracted from the file and executed, so the instructions the agent follows cannot silently drift from what actually works.
+
+## Build your own instead
+
+You do not have to install this one. [docs/build-your-own.md](docs/build-your-own.md) holds a prompt you can paste into a skill builder - Claude Desktop's **Create skill**, `/skill-creator` in Claude Code, or any agent that builds skills - and it will write its own version, in whatever language and shape suits your setup.
+
+The prompt describes the behaviour and hands over the API facts that are expensive to find out: that there is no global search, that a thread is two posts and the first one can strand a headline in a public channel, that more parallelism makes scanning slower. Each was measured against a live server, and several contradict how the API looks at first glance.
 
 ## Design notes
 

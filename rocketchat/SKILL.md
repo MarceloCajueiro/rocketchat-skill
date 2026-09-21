@@ -105,8 +105,9 @@ The server uses MongoDB text search. Measured behavior:
 | Rule | What it means in practice |
 |---|---|
 | Multiple terms are **OR**, and a term with no match is ignored | 4 candidates cost one request; one wrong term does not zero the search |
-| Matches **whole words**, not fragments | `unific` will not find "unified". Write the full word |
-| Plurals are free; other inflections match only themselves | `repo` and `repos` return the same messages. A different inflection finds its own occurrences, not the ones you were after - so try more than one form of a key verb |
+| **Stems in English**, whatever language the messages are in | `deploy`, `deploys` and `deploying` return the same results. So do `unification` and `unific` |
+| Not prefix matching | `deplo` finds nothing. A fragment only works when it happens to be the English stem |
+| The stemmer knows only English | In a Portuguese team, `unificar` and `unificado` are separate searches - try more than one form of a key verb |
 | **Ignores accents and case** | `migracao` = `migração` = `Migração` |
 | `"in quotes"` = exact phrase | The precision tool when OR brings noise |
 | `-word` excludes | `deploy -staging` returns deploys that are not about staging |
