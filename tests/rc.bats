@@ -252,6 +252,83 @@ lookup_snippet() {
   [ "$(jq -r .text "$body")" = "$(cat "$TMP/msg.txt")" ]
 }
 
+@test "send-thread posts the title, then the body inside its thread" {
+  printf 'Long body.\n\nSecond paragraph with *markdown*.\n' > "$TMP/body.md"
+  rc send-thread '#general' "Headline goes here" "$TMP/body.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OK: thread posted"* ]]
+
+  local first second
+  first="$(ls "$CURL_BODY_DIR"/body.*.json | sed -n 1p)"
+  second="$(ls "$CURL_BODY_DIR"/body.*.json | sed -n 2p)"
+
+  # The title goes to the channel as an ordinary message, with no tmid.
+  [ "$(jq -r .text "$first")" = "Headline goes here" ]
+  [ "$(jq -r '.tmid // "none"' "$first")" = "none" ]
+
+  # The body is a reply carrying tmid, so it lands inside the title's thread.
+  [ "$(jq -r .tmid "$second")" = "MSGNEW" ]
+  [ "$(jq -r .text "$second")" = "$(cat "$TMP/body.md")" ]
+}
+
+@test "send-thread refuses an unusable body file before posting anything" {
+  # Every local problem must be caught before the title goes out: posting it is
+  # irreversible, so a late failure strands a headline in a public channel.
+  : > "$TMP/empty.md"
+  printf 'x\n' > "$TMP/noperm.md"; chmod 000 "$TMP/noperm.md"
+
+  local f
+  for f in "$TMP/does-not-exist.md" "$TMP/empty.md" "$TMP/noperm.md"; do
+    : > "$CURL_LOG"
+    rc send-thread '#general' "Headline" "$f"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"body file"* ]]
+    ! grep -q 'chat.postMessage' "$CURL_LOG"
+  done
+  chmod 644 "$TMP/noperm.md"
+}
+
+@test "send-thread does not attempt the body when the title fails" {
+  printf 'body\n' > "$TMP/body.md"
+  CURL_TITLE_FAILS=1 rc send-thread '#general' "Headline" "$TMP/body.md"
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"could not post the thread title"* ]]
+  # Exactly one POST: retrying the body against a title that does not exist
+  # would post an orphan message into the channel.
+  [ "$(grep -c 'chat.postMessage' "$CURL_LOG")" -eq 1 ]
+}
+
+@test "send-thread survives a non-JSON response and still names the stranded title" {
+  # A proxy answering the reply with an HTML error page must not kill the
+  # script: that is precisely when the operator needs the title's id.
+  printf 'body\n' > "$TMP/body.md"
+  CURL_REPLY_HTML=1 rc send-thread '#general' "Headline" "$TMP/body.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"parse error"* ]]
+  [[ "$output" == *"title was posted"* ]]
+  [[ "$output" == *"MSGNEW"* ]]
+}
+
+@test "send-thread refuses to thread onto a response with no message id" {
+  # success:true with no .message._id would otherwise post the body with
+  # tmid "null", detaching it from the title instead of failing.
+  printf 'body\n' > "$TMP/body.md"
+  CURL_TITLE_NO_ID=1 rc send-thread '#general' "Headline" "$TMP/body.md"
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$output" != *"null"* ]]
+  [ "$(grep -c 'chat.postMessage' "$CURL_LOG")" -eq 1 ]
+}
+
+@test "send-thread reports a dangling title when the body fails" {
+  printf 'body\n' > "$TMP/body.md"
+  # The title succeeds; the reply is refused. The room is left with a headline
+  # and no content, and the operator has to be told exactly that.
+  CURL_FAIL_ONCE="" CURL_REPLY_FAILS=1 rc send-thread '#general' "Headline" "$TMP/body.md"
+  [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"title was posted"* ]]
+  [[ "$output" == *"MSGNEW"* ]]
+}
+
 # --- find -------------------------------------------------------------------
 
 @test "find returns name, username and status" {

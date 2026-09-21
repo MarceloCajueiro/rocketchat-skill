@@ -60,6 +60,25 @@ case "$query" in
     ;;
 esac
 
+# Thread-specific response shapes. A threaded post is two calls, and each one
+# can fail differently, so a test needs to steer them independently:
+#   CURL_REPLY_FAILS   the reply is refused with a normal JSON error
+#   CURL_REPLY_HTML    the reply gets a proxy's HTML error page, not JSON
+#   CURL_TITLE_FAILS   the title is refused, so the reply must never be sent
+#   CURL_TITLE_NO_ID   the title "succeeds" but carries no usable message id
+if [ "$name" = "chat.postMessage" ]; then
+  case "$payload" in
+    *'"tmid"'*)
+      [ -n "${CURL_REPLY_FAILS:-}" ] && { printf '{"success":false,"error":"reply refused"}'; exit 0; }
+      [ -n "${CURL_REPLY_HTML:-}" ] && { printf '<html><head>502</head><body>Bad Gateway</body></html>'; exit 0; }
+      ;;
+    *)
+      [ -n "${CURL_TITLE_FAILS:-}" ] && { printf '{"success":false,"error":"channel not found"}'; exit 0; }
+      [ -n "${CURL_TITLE_NO_ID:-}" ] && { printf '{"success":true,"message":{}}'; exit 0; }
+      ;;
+  esac
+fi
+
 if [ ! -f "$fixture" ]; then
   printf '{"success":false,"error":"no fixture for %s"}' "$name"
   exit 0

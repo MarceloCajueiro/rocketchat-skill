@@ -70,6 +70,7 @@ Parallel channel scanning needs bash ≥ 4.3. On stock macOS (bash 3.2) the skil
 | "what did Jane say about X" | Searches that DM and summarizes, newest first |
 | "search the chat for X" | Scans the most recently active rooms |
 | "message Jane that ..." | Drafts the message, **shows it to you, waits for approval**, then sends |
+| "announce X in #general" | Posts a headline in the channel with the long text inside its thread, so the room is not flooded |
 
 Sending always asks for confirmation first. A message goes out in your name and cannot be recalled.
 
@@ -88,6 +89,7 @@ rc.sh search "postgres" 20             # search recently active rooms
 rc.sh send @jane.doe "text"            # send a DM
 rc.sh send "#general" "text"           # send to a channel
 rc.sh send-file @jane.doe draft.txt    # send long text from a file
+rc.sh send-thread "#general" "Headline" body.md   # headline in the room, body in its thread
 ```
 
 Search output is TSV: `date<TAB>room<TAB>@author<TAB>text<TAB>link`.

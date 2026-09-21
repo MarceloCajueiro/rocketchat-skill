@@ -153,6 +153,16 @@ rc_curl() {
   printf '%s' "$body"
 }
 
+# Extracts a human reason from a failed response, whatever shape it has.
+# A proxy can answer with an HTML error page, so jq must never be allowed to
+# abort the caller: on any unparsable body this still prints a usable sentence.
+rc_failure_reason() {
+  local body="$1" reason=""
+  reason=$(printf '%s' "$body" | jq -r '(.error // .message // .errorType // empty) | select(type == "string")' 2>/dev/null || true)
+  [ -n "$reason" ] || reason="unreadable response from Rocket.Chat"
+  printf '%s' "$reason"
+}
+
 cmd_whoami() {
   rc_curl GET "/api/v1/me" | jq -r 'if .success == false then "ERROR: \(.error // .message)" else "\(.name) (@\(.username))" end'
 }
@@ -186,6 +196,60 @@ cmd_send_file() {
   payload=$(jq -n --arg c "$target" --rawfile t "$file" '{channel:$c, text:$t}')
   rc_curl POST "/api/v1/chat.postMessage" -d "$payload" \
     | jq -r 'if .success then "OK: sent to \(.message.rid)" else "ERROR: \(.error // .message)" end'
+}
+
+# send-thread <@user|#channel> <title> <body-file>
+# Posts the title as a normal message, then the body as a reply inside its thread.
+# The channel shows one short line; the long text lives behind it, unfolded only
+# by whoever opens the thread. This is the announcement shape: a headline that
+# does not flood the room, with the detail one click away.
+cmd_send_thread() {
+  local target="${1:?usage: rc.sh send-thread <@user|#channel> <title> <body-file>}"
+  local title="${2:?usage: rc.sh send-thread <@user|#channel> <title> <body-file>}"
+  local file="${3:?usage: rc.sh send-thread <@user|#channel> <title> <body-file>}"
+
+  # Every local precondition is checked, and the body is read into the payload,
+  # BEFORE the title goes out. Posting the title is irreversible: a problem
+  # discovered afterwards leaves a headline in the room with nothing behind it.
+  [ -e "$file" ] || { echo "ERROR: body file not found: $file"; return 1; }
+  [ -r "$file" ] || { echo "ERROR: body file is not readable: $file"; return 1; }
+  [ -s "$file" ] || { echo "ERROR: body file is empty: $file"; return 1; }
+
+  local body_text
+  body_text=$(cat "$file") || { echo "ERROR: could not read the body file: $file"; return 1; }
+
+  local root_payload root_body root_id room_id
+  root_payload=$(jq -n --arg c "$target" --arg t "$title" '{channel:$c, text:$t}')
+  root_body=$(rc_curl POST "/api/v1/chat.postMessage" -d "$root_payload")
+
+  if ! printf '%s' "$root_body" | jq -e '.success == true' >/dev/null 2>&1; then
+    echo "ERROR: could not post the thread title: $(rc_failure_reason "$root_body")"
+    return 0
+  fi
+
+  # A success response without usable ids cannot be threaded onto: `jq -r` would
+  # render a missing field as the string "null" and the reply would be posted
+  # with tmid "null", detaching it from the title instead of failing.
+  root_id=$(printf '%s' "$root_body" | jq -r '.message._id // empty' 2>/dev/null || true)
+  room_id=$(printf '%s' "$root_body" | jq -r '.message.rid // empty' 2>/dev/null || true)
+  if [ -z "$root_id" ] || [ -z "$room_id" ]; then
+    echo "ERROR: the title may have been posted, but the server did not return its id, so the body was not sent. Check $target and add the body by hand."
+    return 0
+  fi
+
+  # tmid attaches this message to the title's thread. The title is already
+  # posted, so a failure here leaves a bare headline in the room: say exactly
+  # that, with the id, instead of reporting a clean failure.
+  local reply_payload reply_body
+  reply_payload=$(jq -n --arg r "$room_id" --arg m "$root_id" --arg t "$body_text" \
+    '{roomId:$r, tmid:$m, text:$t}')
+  reply_body=$(rc_curl POST "/api/v1/chat.postMessage" -d "$reply_payload")
+
+  if printf '%s' "$reply_body" | jq -e '.success == true' >/dev/null 2>&1; then
+    echo "OK: thread posted to $room_id (title $root_id)"
+  else
+    echo "ERROR: the title was posted ($root_id) but the body failed: $(rc_failure_reason "$reply_body"). Delete it or add the body by hand."
+  fi
 }
 
 # Subscriptions: every room the user belongs to, with rid, type and name.
@@ -370,5 +434,6 @@ case "${1:-}" in
   search)    shift; cmd_search "$@" ;;
   send)      shift; cmd_send "$@" ;;
   send-file) shift; cmd_send_file "$@" ;;
-  *) echo "usage: rc.sh {setup|whoami|find <term>|room <target>|search <term> [target] [count]|send <target> <text>|send-file <target> <file>}" >&2; exit 1 ;;
+  send-thread) shift; cmd_send_thread "$@" ;;
+  *) echo "usage: rc.sh {setup|whoami|find <term>|room <target>|search <term> [target] [count]|send <target> <text>|send-file <target> <file>|send-thread <target> <title> <body-file>}" >&2; exit 1 ;;
 esac
