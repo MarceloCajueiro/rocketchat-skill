@@ -76,7 +76,9 @@ Claude Desktop is a single app containing three runtimes, and this skill's verdi
 
 ### The chat window cannot run this skill
 
-Skills in the chat window execute in a sandbox with **no outbound network access and no access to your filesystem** ([code execution tool docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/code-execution-tool)). Two independent blockers, either fatal on its own: `rc.sh` cannot reach your Rocket.Chat server, and it cannot read your credentials at `~/.config/rocketchat/config`.
+Skills in the chat window execute in a sandbox, and a sandbox is the wrong place for this skill twice over: `rc.sh` cannot reach your Rocket.Chat server, and it cannot read your credentials at `~/.config/rocketchat/config`. Either blocker is fatal on its own.
+
+Anthropic documents the sandbox running code for the API as having **no outbound network access and full isolation from the host** ([code execution tool docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/code-execution-tool)). That page covers the API, not the Desktop chat window specifically, so the restriction here is reasoned by analogy rather than quoted from a page about Skills. Nobody has published a way to reach a private server from a chat-window skill, and the mechanism would have to change for one to exist.
 
 This is not a plan limitation - custom skills are available on every tier, including Free. No upgrade changes it. A bash script that talks to a private server is simply the wrong shape for that sandbox.
 
