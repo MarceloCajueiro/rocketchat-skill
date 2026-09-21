@@ -1,0 +1,56 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  bats:
+    # ubuntu gives bash 5.x, macos gives 3.2 as /bin/bash — the serial scan
+    # branch only runs on the latter, so both are needed.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The "must fail" step reads an older commit, which a shallow clone lacks.
+          fetch-depth: 0
+
+      - name: Install bats
+        uses: bats-core/bats-action@3.0.0
+        with:
+          support-install: false
+          assert-install: false
+          detik-install: false
+          file-install: false
+
+      - name: Versions
+        run: |
+          bash --version | head -1
+          /bin/bash --version | head -1
+          jq --version
+
+      - name: Run suite
+        run: bats tests/rc.bats
+
+      - name: Run suite under /bin/bash (bash 3.2 on macOS)
+        run: RC_BASH=/bin/bash bats tests/rc.bats
+
+      - name: Suite must fail against the commit it covers
+        # A suite that cannot fail proves nothing: aa867cd carries the defects
+        # fixed in PR #1, so the tests covering them must go red there.
+        run: |
+          git show aa867cd:rocketchat/rc.sh    > /tmp/old_rc.sh
+          git show aa867cd:rocketchat/SKILL.md > /tmp/old_skill.md
+          if RC=/tmp/old_rc.sh SKILL_MD=/tmp/old_skill.md bats tests/rc.bats > /tmp/old.log 2>&1; then
+            echo "The suite passed against the known-buggy commit — it has no power to fail."
+            cat /tmp/old.log
+            exit 1
+          fi
+          echo "Failures against aa867cd, as expected:"
+          grep -c '^not ok' /tmp/old.log

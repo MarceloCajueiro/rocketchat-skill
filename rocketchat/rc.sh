@@ -242,7 +242,7 @@ rc_search_room() {
   fi
   printf '%s' "$body" \
     | jq -r --arg label "$label" --arg path "$path" '
-        if .success == false then "ERROR: \(.error // .message // "search refused") em \($label)" else
+        if .success == false then "ERROR: \(.error // .message // "search refused") in \($label)" else
         (.messages // [])[]
         | select(.msg != null and .msg != "")
         | [(.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | strflocaltime("%Y-%m-%d %H:%M")),

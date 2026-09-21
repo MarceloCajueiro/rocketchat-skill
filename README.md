@@ -113,6 +113,20 @@ The server uses MongoDB text search:
 | `RC_SEARCH_DELAY` | `0.08` | Pause between rooms, in seconds |
 | `RC_HTTP_TIMEOUT` | `20` | Per-request timeout, in seconds |
 
+## Tests
+
+```bash
+brew install bats-core      # or your platform's package
+bats tests/rc.bats
+RC_BASH=/bin/bash bats tests/rc.bats    # exercise the bash 3.2 path
+```
+
+The suite never touches the network: `tests/bin/curl` shadows `curl` on `PATH` and answers from fixtures, which also lets a test inject a per-room failure and assert on the resulting call log.
+
+It is checked against the commit whose defects it covers - `RC=<old rc.sh> SKILL_MD=<old SKILL.md> bats tests/rc.bats` must go red. A test that cannot fail proves nothing, so CI asserts that too.
+
+The documented install-path lookup in `SKILL.md` is extracted from the file and executed, so the instructions the agent follows cannot silently drift from what actually works.
+
 ## Design notes
 
 **There is no global search in the Rocket.Chat REST API.** `chat.search` requires a `roomId`, so "search everywhere" is a loop over your rooms, one request each. That shapes everything else: scanning is the expensive part, and coverage is a real property worth reporting.
