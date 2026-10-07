@@ -289,6 +289,79 @@ cmd_room() {
   esac
 }
 
+# Internal: labels a room id, emitting `label<TAB>type` the way rc_room_lookup does.
+# A permalink carries the rid for a DM and a name elsewhere, so the label comes
+# from the subscription list rather than from the URL the caller pasted.
+# A room the user has left is not in the list: the bare rid is still a truthful
+# label, and the message itself was fetched, so this never fails the command.
+rc_room_label() {
+  local rid="$1"
+  rc_subscriptions | jq -r --arg rid "$rid" '
+    if .success == false then "\($rid)\t?"
+    else
+      ([.update[] | select(.rid == $rid)]
+       | if length == 0 then "\($rid)\t?"
+         elif .[0].t == "d" then "@\(.[0].name)\td"
+         else "#\(.[0].name)\t\(.[0].t)" end)
+    end'
+}
+
+# get <permalink|msgId> - one message by its id, in the TSV shape search emits.
+# chat.search cannot reach a message by id, and a pasted permalink names the room
+# by id, which no search target accepts. The text is NOT truncated: reading one
+# whole message is the point, and its attachments are listed after it.
+cmd_get() {
+  local arg="${1:?usage: rc.sh get <message-link|message-id>}"
+  local id="$arg"
+  # A permalink is .../direct/<rid>?msg=<id>; anything else is already an id.
+  case "$arg" in
+    *[?\&]msg=*) id="${arg##*[?&]msg=}"; id="${id%%&*}" ;;
+  esac
+
+  local body
+  body=$(rc_curl GET "/api/v1/chat.getMessage?msgId=$(jq -rn --arg i "$id" '$i|@uri')")
+  if printf '%s' "$body" | jq -e '.success == false' >/dev/null 2>&1; then
+    # A wrong id and a message in a room this account cannot read are the same
+    # answer - the server sends a bare {"success":false} with no reason at all.
+    # Naming both keeps a caller from reporting "it does not exist" for a
+    # message that does exist and is simply out of reach.
+    local reason
+    reason=$(rc_failure_reason "$body")
+    case "$reason" in
+      *unreadable*|*"no reason"*|"")
+        reason="no such message, or it is in a room this account cannot read" ;;
+    esac
+    echo "ERROR: $reason"
+    return 0
+  fi
+
+  local rid
+  rid=$(printf '%s' "$body" | jq -r '.message.rid // ""')
+  [ -z "$rid" ] && { echo "ERROR: response carried no message"; return 0; }
+
+  local found label rtype path=""
+  found=$(rc_room_label "$rid")
+  label="${found%%$'\t'*}"
+  rtype="${found##*$'\t'}"
+  # The room type decides the URL segment: a private group is /group/, not /channel/.
+  case "$rtype" in
+    d) path="$BASE/direct/$rid" ;;
+    p) path="$BASE/group/${label#\#}" ;;
+    c) path="$BASE/channel/${label#\#}" ;;
+  esac
+
+  printf '%s' "$body" | jq -r --arg label "$label" --arg path "$path" '
+    .message
+    | [(.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | strflocaltime("%Y-%m-%d %H:%M")),
+       $label,
+       "@\(.u.username // "?")",
+       (((.msg // "") | gsub("[\n\t]+"; " "))
+        + ((.attachments // [])
+           | map(select(.title != null) | " [file: \(.title)]") | join(""))),
+       (if $path == "" then "" else "\($path)?msg=\(._id)" end)]
+    | @tsv'
+}
+
 # Searches ONE already-resolved room.
 # Emits TSV: date<TAB>room<TAB>@author<TAB>text<TAB>link
 rc_search_room() {
@@ -431,9 +504,10 @@ case "${1:-}" in
   whoami)    shift; cmd_whoami "$@" ;;
   find)      shift; cmd_find "$@" ;;
   room)      shift; cmd_room "$@" ;;
+  get)       shift; cmd_get "$@" ;;
   search)    shift; cmd_search "$@" ;;
   send)      shift; cmd_send "$@" ;;
   send-file) shift; cmd_send_file "$@" ;;
   send-thread) shift; cmd_send_thread "$@" ;;
-  *) echo "usage: rc.sh {setup|whoami|find <term>|room <target>|search <term> [target] [count]|send <target> <text>|send-file <target> <file>|send-thread <target> <title> <body-file>}" >&2; exit 1 ;;
+  *) echo "usage: rc.sh {setup|whoami|find <term>|room <target>|get <link|id>|search <term> [target] [count]|send <target> <text>|send-file <target> <file>|send-thread <target> <title> <body-file>}" >&2; exit 1 ;;
 esac

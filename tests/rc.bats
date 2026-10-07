@@ -175,6 +175,70 @@ lookup_snippet() {
   [[ "$output" == *"ERROR: room not found"* ]]
 }
 
+# --- get: one message by permalink or id ------------------------------------
+
+@test "get accepts a permalink and asks for the id it carries" {
+  rc get 'https://chat.example.com/direct/RIDDM?msg=MSGID1'
+  [ "$status" -eq 0 ]
+  grep -q 'chat.getMessage?msgId=MSGID1' "$CURL_LOG"
+}
+
+@test "get accepts a bare message id" {
+  rc get MSGID1
+  [ "$status" -eq 0 ]
+  grep -q 'chat.getMessage?msgId=MSGID1' "$CURL_LOG"
+}
+
+@test "get emits the same five TSV fields as search" {
+  rc get MSGID1
+  [ "$(printf '%s' "$output" | awk -F'\t' 'END{print NF}')" -eq 5 ]
+}
+
+@test "get labels the room from the subscription, not from the link" {
+  rc get 'https://chat.example.com/direct/RIDDM?msg=MSGID1'
+  [ "$(printf '%s' "$output" | awk -F'\t' '{print $2}')" = "@john.roe" ]
+}
+
+@test "get keeps the whole text on one line and lists the attachment" {
+  rc get MSGID1
+  local text
+  text="$(printf '%s' "$output" | awk -F'\t' '{print $4}')"
+  [[ "$text" == *"any data we have access to:"* ]]
+  [[ "$text" == *"[file: Clipboard.png]"* ]]
+}
+
+@test "get links a private group as /group/, not /channel/" {
+  cp -R "$FIXTURES" "$TMP/fxpg"
+  jq '.message.rid = "RIDPG"' "$FIXTURES/chat.getMessage.json" \
+    > "$TMP/fxpg/chat.getMessage.json"
+  FIXTURES="$TMP/fxpg" rc get MSGID1
+  [ "$(printf '%s' "$output" | awk -F'\t' '{print $2}')" = "#leads" ]
+  [[ "$(printf '%s' "$output" | awk -F'\t' '{print $5}')" == *"/group/leads?msg=MSGID1" ]]
+}
+
+@test "get reports a message it cannot read as an error, not as empty output" {
+  CURL_MSG_NOT_FOUND=1 rc get MSGID1
+  [[ "$output" == ERROR:* ]]
+}
+
+@test "get names both causes when the server refuses without a reason" {
+  # The real server answers a wrong id with a bare {"success":false}: an id that
+  # does not exist and one this account cannot read are indistinguishable.
+  CURL_MSG_BARE_FALSE=1 rc get MSGID1
+  [[ "$output" == ERROR:* ]]
+  [[ "$output" == *"cannot read"* ]]
+}
+
+@test "get labels a room the user has left with the bare rid and no link" {
+  cp -R "$FIXTURES" "$TMP/fxleft"
+  jq '.message.rid = "RIDGONE"' "$FIXTURES/chat.getMessage.json" \
+    > "$TMP/fxleft/chat.getMessage.json"
+  FIXTURES="$TMP/fxleft" rc get MSGID1
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | awk -F'\t' '{print $2}')" = "RIDGONE" ]
+  [ -z "$(printf '%s' "$output" | awk -F'\t' '{print $5}')" ]
+}
+
 @test "long messages are truncated to 300 characters" {
   # A private FIXTURES copy: a test must never mutate a versioned fixture,
   # or a failure part-way through leaves the suite corrupted for later tests.
