@@ -72,9 +72,11 @@ esac
 #   CURL_MSG_NOT_FOUND        with an error field
 #   CURL_MSG_BARE_FALSE       bare {"success":false}, which is what the real
 #                             server sends for a wrong id
+#   CURL_MSG_IN_THREAD        the message is itself a reply, with tmid ROOTMSG
 if [ "$name" = "chat.getMessage" ]; then
   [ -n "${CURL_MSG_NOT_FOUND:-}" ] && { printf '{"success":false,"error":"Message not found"}'; exit 0; }
   [ -n "${CURL_MSG_BARE_FALSE:-}" ] && { printf '{"success":false}'; exit 0; }
+  [ -n "${CURL_MSG_IN_THREAD:-}" ] && { jq -c '.message.tmid = "ROOTMSG"' "$fixture"; exit 0; }
 fi
 
 if [ "$name" = "chat.postMessage" ]; then

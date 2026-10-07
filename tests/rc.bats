@@ -239,6 +239,56 @@ lookup_snippet() {
   [ -z "$(printf '%s' "$output" | awk -F'\t' '{print $5}')" ]
 }
 
+# --- reply --------------------------------------------------------------------
+
+@test "reply posts inside the thread of the linked message, in its room" {
+  printf 'see the issue\n' > "$TMP/body.md"
+  rc reply "https://chat.example.com/channel/general?msg=MSGID1" "$TMP/body.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "OK: replied in thread MSGID1 of RIDDM" ]]
+  grep -q 'chat.getMessage?msgId=MSGID1' "$CURL_LOG"
+
+  local post
+  post="$(ls "$CURL_BODY_DIR"/body.*.json | sed -n 1p)"
+  [ "$(jq -r .roomId "$post")" = "RIDDM" ]
+  [ "$(jq -r .tmid "$post")" = "MSGID1" ]
+  [ "$(jq -r .text "$post")" = "see the issue" ]
+}
+
+@test "reply to a message already inside a thread goes to that thread's root" {
+  # Threads are one level deep: tmid pointing at a reply would open a detached
+  # thread under it instead of joining the conversation the user is looking at.
+  printf 'x\n' > "$TMP/body.md"
+  CURL_MSG_IN_THREAD=1 rc reply MSGID1 "$TMP/body.md"
+  [[ "$output" == "OK: replied in thread ROOTMSG of RIDDM" ]]
+  [ "$(jq -r .tmid "$(ls "$CURL_BODY_DIR"/body.*.json | sed -n 1p)")" = "ROOTMSG" ]
+}
+
+@test "reply refuses an unusable body file before any request" {
+  : > "$TMP/empty.md"
+  local f
+  for f in "$TMP/does-not-exist.md" "$TMP/empty.md"; do
+    : > "$CURL_LOG"
+    rc reply MSGID1 "$f"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"body file"* ]]
+    [ ! -s "$CURL_LOG" ]
+  done
+}
+
+@test "reply sends nothing when the linked message cannot be read" {
+  printf 'x\n' > "$TMP/body.md"
+  CURL_MSG_BARE_FALSE=1 rc reply MSGID1 "$TMP/body.md"
+  [[ "$output" == ERROR:*"cannot read"* ]]
+  ! grep -q 'chat.postMessage' "$CURL_LOG"
+}
+
+@test "reply reports a refused post as an error" {
+  printf 'x\n' > "$TMP/body.md"
+  CURL_REPLY_FAILS=1 rc reply MSGID1 "$TMP/body.md"
+  [[ "$output" == "ERROR: reply refused" ]]
+}
+
 @test "long messages are truncated to 300 characters" {
   # A private FIXTURES copy: a test must never mutate a versioned fixture,
   # or a failure part-way through leaves the suite corrupted for later tests.
