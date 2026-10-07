@@ -310,15 +310,20 @@ rc_room_label() {
 # chat.search cannot reach a message by id, and a pasted permalink names the room
 # by id, which no search target accepts. The text is NOT truncated: reading one
 # whole message is the point, and its attachments are listed after it.
-cmd_get() {
-  local arg="${1:?usage: rc.sh get <message-link|message-id>}"
-  local id="$arg"
-  # A permalink is .../direct/<rid>?msg=<id>; anything else is already an id.
+# Internal: the message id inside a permalink (.../direct/<rid>?msg=<id>), or
+# the argument itself when it is already an id.
+rc_message_id() {
+  local arg="$1" id="$1"
   case "$arg" in
     *[?\&]msg=*) id="${arg##*[?&]msg=}"; id="${id%%&*}" ;;
   esac
+  printf '%s' "$id"
+}
 
-  local body
+# Internal: chat.getMessage for one id. Prints the raw body on success, or one
+# `ERROR: ...` line on failure.
+rc_fetch_message() {
+  local id="$1" body
   body=$(rc_curl GET "/api/v1/chat.getMessage?msgId=$(jq -rn --arg i "$id" '$i|@uri')")
   if printf '%s' "$body" | jq -e '.success == false' >/dev/null 2>&1; then
     # A wrong id and a message in a room this account cannot read are the same
@@ -334,6 +339,14 @@ cmd_get() {
     echo "ERROR: $reason"
     return 0
   fi
+  printf '%s' "$body"
+}
+
+cmd_get() {
+  local arg="${1:?usage: rc.sh get <message-link|message-id>}"
+  local body
+  body=$(rc_fetch_message "$(rc_message_id "$arg")")
+  case "$body" in ERROR:*) printf '%s\n' "$body"; return 0 ;; esac
 
   local rid
   rid=$(printf '%s' "$body" | jq -r '.message.rid // ""')
@@ -360,6 +373,46 @@ cmd_get() {
            | map(select(.title != null) | " [file: \(.title)]") | join(""))),
        (if $path == "" then "" else "\($path)?msg=\(._id)" end)]
     | @tsv'
+}
+
+# reply <permalink|msgId> <body-file> - answers inside the thread of a message
+# that is already in the room. send-thread cannot do this: it always posts a new
+# headline. The room comes from the message itself, so the caller only needs the
+# link a search or `get` printed.
+cmd_reply() {
+  local arg="${1:?usage: rc.sh reply <message-link|message-id> <body-file>}"
+  local file="${2:?usage: rc.sh reply <message-link|message-id> <body-file>}"
+
+  [ -e "$file" ] || { echo "ERROR: body file not found: $file"; return 1; }
+  [ -r "$file" ] || { echo "ERROR: body file is not readable: $file"; return 1; }
+  [ -s "$file" ] || { echo "ERROR: body file is empty: $file"; return 1; }
+
+  local body_text
+  body_text=$(cat "$file") || { echo "ERROR: could not read the body file: $file"; return 1; }
+
+  local body
+  body=$(rc_fetch_message "$(rc_message_id "$arg")")
+  case "$body" in ERROR:*) printf '%s\n' "$body"; return 0 ;; esac
+
+  # Threads in Rocket.Chat are one level deep: a message that is itself a reply
+  # carries its thread's root in tmid, and the answer has to go to that root,
+  # or the server opens a detached thread under the reply.
+  local rid root
+  rid=$(printf '%s' "$body" | jq -r '.message.rid // empty' 2>/dev/null || true)
+  root=$(printf '%s' "$body" | jq -r '.message.tmid // .message._id // empty' 2>/dev/null || true)
+  if [ -z "$rid" ] || [ -z "$root" ]; then
+    echo "ERROR: the server did not return the message's room or id, so nothing was sent"
+    return 0
+  fi
+
+  local payload reply_body
+  payload=$(jq -n --arg r "$rid" --arg m "$root" --arg t "$body_text" '{roomId:$r, tmid:$m, text:$t}')
+  reply_body=$(rc_curl POST "/api/v1/chat.postMessage" -d "$payload")
+  if printf '%s' "$reply_body" | jq -e '.success == true' >/dev/null 2>&1; then
+    echo "OK: replied in thread $root of $rid"
+  else
+    echo "ERROR: $(rc_failure_reason "$reply_body")"
+  fi
 }
 
 # Searches ONE already-resolved room.
@@ -509,5 +562,6 @@ case "${1:-}" in
   send)      shift; cmd_send "$@" ;;
   send-file) shift; cmd_send_file "$@" ;;
   send-thread) shift; cmd_send_thread "$@" ;;
-  *) echo "usage: rc.sh {setup|whoami|find <term>|room <target>|get <link|id>|search <term> [target] [count]|send <target> <text>|send-file <target> <file>|send-thread <target> <title> <body-file>}" >&2; exit 1 ;;
+  reply)     shift; cmd_reply "$@" ;;
+  *) echo "usage: rc.sh {setup|whoami|find <term>|room <target>|get <link|id>|search <term> [target] [count]|send <target> <text>|send-file <target> <file>|send-thread <target> <title> <body-file>|reply <link|id> <body-file>}" >&2; exit 1 ;;
 esac

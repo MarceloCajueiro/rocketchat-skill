@@ -142,6 +142,7 @@ rc.sh send @jane.doe "text"            # send a DM
 rc.sh send "#general" "text"           # send to a channel
 rc.sh send-file @jane.doe draft.txt    # send long text from a file
 rc.sh send-thread "#general" "Headline" body.md   # headline in the room, body in its thread
+rc.sh reply "<message link>" body.md   # answer inside the thread of a message already posted
 ```
 
 Search output is TSV: `date<TAB>room<TAB>@author<TAB>text<TAB>link`.

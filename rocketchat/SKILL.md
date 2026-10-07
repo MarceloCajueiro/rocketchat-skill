@@ -37,6 +37,7 @@ rc.sh send @jane.doe "text"          # send a DM (creates the conversation if ne
 rc.sh send "#general" "text"         # send to a channel
 rc.sh send-file @jane.doe draft.txt  # long or multi-line message, read from a file
 rc.sh send-thread "#general" "Headline" body.md   # headline in the room, detail in its thread
+rc.sh reply "<message link>" body.md              # answer inside the thread of a message already posted
 ```
 
 Output is TSV, one line per message: `date<TAB>room<TAB>@author<TAB>text<TAB>link`.
@@ -213,6 +214,31 @@ ERROR: the title was posted (abc123) but the body failed: <reason>. Delete it or
 ```
 
 The room is left showing a headline with nothing behind it. Report that plainly, quote the id, and offer to delete it or post the body by hand. Do not describe it as a clean failure, and **do not simply re-run the command** - that would post a second headline.
+
+## Following up on a message already posted: reply in its thread
+
+"Send it to him in the thread", "answer there", "add the link to that message" all mean the same thing: the conversation already exists, and the new text belongs inside it.
+
+```bash
+rc.sh reply "https://chat.example.com/channel/general?msg=abc123" body.md
+```
+
+**Never use `send-thread` for this.** It always posts a new headline, so the follow-up lands as a second, unrelated message in the room.
+
+Get the link from where the message already is:
+
+- The message was sent in this session: search for it scoped to its room (`rc.sh search "<distinctive word>" "#channel" 5`) and take the link from the last column. `send` and `send-file` print only the room id, not the message id.
+- The user pasted a link: use it as is.
+
+The room comes from the message itself, so no target is needed.
+A link to a message that is already a reply works too: the answer goes to that thread's root, because Rocket.Chat threads are one level deep.
+
+**To mention someone so they are notified**, put `@username` in the text. Inside a thread, the mention is what makes the person see the follow-up: by default a thread reply does not show in the room's main view.
+
+The flow is the same as any other send: show the draft, say it goes into the thread of which message, wait for approval.
+
+Output is `OK: replied in thread <rootId> of <roomId>`.
+If the linked message cannot be read, the command answers `ERROR:` and posts nothing.
 
 When the user confirms a nickname you had to resolve, append a line to the contacts file so the next session skips the lookup.
 
