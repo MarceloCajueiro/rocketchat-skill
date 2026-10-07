@@ -24,6 +24,10 @@ jobs:
       - name: Install bats
         uses: bats-core/bats-action@3.0.0
         with:
+          # Without a version the action asks api.github.com for the latest
+          # release, unauthenticated; the shared macOS runner IPs exhaust that
+          # rate limit and the install fails with 403 before any test runs.
+          bats-version: 1.14.0
           support-install: false
           assert-install: false
           detik-install: false
